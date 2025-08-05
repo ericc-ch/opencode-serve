@@ -74,6 +74,18 @@ File operations and workspace management
 - Read files, check status, manage AI modes, and logging
 - **Endpoints**: `GET /file`, `GET /file/status`, `GET /mode`, `POST /log`
 
+### 🖥️ [TUI Control API](./tui.md)
+
+Remote control interface for the opencode Terminal User Interface
+
+- Control TUI dialogs, prompt input, and interface actions remotely
+- **Key Endpoints**:
+  - `POST /tui/append-prompt` - Add text to TUI prompt
+  - `POST /tui/open-help` - Open help dialog
+  - `POST /tui/open-sessions` - Open session manager
+  - `POST /tui/submit-prompt` - Submit current prompt
+  - Plus 4+ additional TUI control operations
+
 ## Common Use Cases
 
 ### Building an IDE Extension
@@ -116,25 +128,23 @@ curl "http://localhost:8080/file?path=src/main.js"
 curl "http://localhost:8080/find/symbol?query=calculateTotal"
 ```
 
-### Building a Custom UI
+### Controlling the TUI Remotely
 
 ```javascript
-// Get app configuration for UI setup
-const config = await fetch("/config").then((r) => r.json())
+// Control the terminal interface from external applications
+const tui = new TUIController("http://localhost:8080")
 
-// List existing sessions for sidebar
-const sessions = await fetch("/session").then((r) => r.json())
+// Add text to TUI prompt
+await tui.appendText("Debug this authentication function")
 
-// Get available modes for mode switcher
-const modes = await fetch("/mode").then((r) => r.json())
+// Submit the prompt
+await tui.submitPrompt()
 
-// Listen for real-time updates
-events.addEventListener("message", (e) => {
-  const event = JSON.parse(e.data)
-  if (event.type === "session.updated") {
-    updateSessionInUI(event.properties)
-  }
-})
+// Open help dialog in terminal
+await tui.openHelp()
+
+// Switch between sessions
+await tui.executeCommand("switch_mode")
 ```
 
 ## Data Schemas
@@ -210,6 +220,7 @@ All endpoints return standard HTTP status codes with consistent error format:
    - Real-time updates → [Events API](./events.md)
    - Code search features → [Find API](./find.md)
    - Configuration management → [Config API](./config.md)
+   - TUI remote control → [TUI Control API](./tui.md)
 4. **Check Schemas**: Review [Schemas Reference](./schemas.md) for data formats
 5. **Use SDKs**: Consider using official SDKs for your programming language
 
