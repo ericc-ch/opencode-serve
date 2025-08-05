@@ -1,6 +1,6 @@
 # Sessions API
 
-The Sessions API manages conversation sessions, allowing you to create, list, delete, and interact with AI conversations.
+The Sessions API manages conversation sessions between users and AI assistants. Sessions contain messages, parts, and metadata for AI conversations.
 
 ## GET /session
 
@@ -10,11 +10,11 @@ List all sessions sorted by most recently updated.
 
 ### Description
 
-Retrieve a list of all sessions, sorted by update time in descending order (most recent first).
+Retrieves all sessions in the system, automatically sorted by the `time.updated` field in descending order (most recent first). This endpoint provides a paginated view of all conversation sessions.
 
 ### Parameters
 
-None
+None required.
 
 ### Response
 
@@ -24,32 +24,2004 @@ None
 
 **Schema:** Array of [Session](#session-schema)
 
+### Implementation Details
+
+- Sessions are sorted by `time.updated` in descending order
+- Returns complete session metadata including sharing status and revert state
+- No pagination limit - returns all sessions
+
 ### Example Response
 
 ```json
 [
   {
-    "id": "session_abc123",
-    "title": "Bug fix for authentication",
+    "id": "ses_abc123def456",
+    "title": "Debug authentication issue",
     "version": "0.0.3",
     "time": {
       "created": 1683456789000,
       "updated": 1683456990000
     },
     "share": {
-      "url": "https://opencode.ai/share/abc123"
+      "url": "https://opencode.ai/share/ses_abc123def456"
     }
   },
   {
-    "id": "session_def456",
-    "title": "New feature implementation",
+    "id": "ses_def456ghi789",
+    "title": "Implement user registration",
     "version": "0.0.3",
     "time": {
       "created": 1683456000000,
       "updated": 1683456500000
+    },
+    "revert": {
+      "messageID": "msg_xyz789",
+      "snapshot": "previous state data"
     }
   }
 ]
+```
+
+### Usage Examples
+
+```bash
+# Get all sessions
+curl http://localhost:3000/session
+
+# Using JavaScript SDK
+const sessions = await client.session.list()
+console.log(`Found ${sessions.length} sessions`)
+```
+
+---
+
+## POST /session
+
+Create a new conversation session.
+
+**Operation ID:** `session.create`
+
+### Description
+
+Creates a new conversation session with a unique ID, default title, and initial metadata. The session is immediately available for message interactions.
+
+### Parameters
+
+None required.
+
+### Request Body
+
+None required.
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Session](#session-schema)
+
+**Status:** `400 Bad Request`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Error](#error-schema)
+
+### Implementation Details
+
+- Session ID is auto-generated with descending timestamp pattern (`ses_...`)
+- Default title includes timestamp: "New Session - {ISO date}"
+- Version matches current installation version
+- `time.created` and `time.updated` set to current timestamp
+- Auto-sharing enabled if configured (see `share` config option)
+- Publishes `Event.Updated` event for real-time UI updates
+
+### Example Response
+
+```json
+{
+  "id": "ses_01234567890abcdef",
+  "title": "New Session - 2024-01-15T10:30:00.000Z",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315800000
+  }
+}
+```
+
+### Auto-Sharing Behavior
+
+If auto-sharing is enabled via:
+
+- `OPENCODE_AUTO_SHARE` environment variable, or
+- `share: "auto"` in config
+
+The session will automatically be shared publicly and the response will include:
+
+```json
+{
+  "id": "ses_01234567890abcdef",
+  "title": "New Session - 2024-01-15T10:30:00.000Z",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315800000
+  },
+  "share": {
+    "url": "https://opencode.ai/share/ses_01234567890abcdef"
+  }
+}
+```
+
+### Usage Examples
+
+```bash
+# Create a new session
+curl -X POST http://localhost:3000/session
+
+# Using JavaScript SDK
+const session = await client.session.create()
+console.log(`Created session: ${session.id}`)
+```
+
+---
+
+## DELETE /session/{id}
+
+Delete a session and all its associated data.
+
+**Operation ID:** `session.delete`
+
+### Description
+
+Permanently deletes a session and all its associated data including messages, parts, child sessions, and shared URLs. This operation cannot be undone.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to delete
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** `boolean` (always returns `true` on success)
+
+### Implementation Details
+
+The deletion process performs the following operations in sequence:
+
+1. **Abort active operations**: Stops any running AI interactions
+2. **Delete child sessions**: Recursively removes all forked/child sessions
+3. **Unshare session**: Removes public sharing if enabled
+4. **Remove storage**: Deletes session info and all message data
+5. **Clear memory**: Removes session from in-memory state
+6. **Emit event**: Publishes `Event.Deleted` for real-time UI updates
+
+### Error Handling
+
+- Individual step failures (like unsharing) are silently ignored
+- Session deletion continues even if some cleanup operations fail
+- Always returns `true` unless a critical error occurs
+
+### Example Response
+
+```json
+true
+```
+
+### Data Removed
+
+When deleting a session, the following data is permanently removed:
+
+- Session metadata (title, timestamps, sharing info)
+- All messages and their parts (text, files, tool calls)
+- Message history and conversation state
+- Child/forked sessions (recursive)
+- Public share URLs and access
+- Revert snapshots and diffs
+
+### Usage Examples
+
+```bash
+# Delete a session
+curl -X DELETE http://localhost:3000/session/ses_abc123def456
+
+# Using JavaScript SDK
+const success = await client.session.delete('ses_abc123def456')
+console.log(`Session deleted: ${success}`)
+```
+
+### Cascading Effects
+
+- **Child Sessions**: All child sessions created via forking are automatically deleted
+- **Active Conversations**: Any ongoing AI interactions are immediately aborted
+- **Public Shares**: Shared URLs become inaccessible immediately
+- **Event Notifications**: Connected clients receive real-time deletion events
+
+---
+
+## POST /session/{id}/message
+
+Send a message to a session and receive an AI response.
+
+**Operation ID:** `session.chat`
+
+### Description
+
+Sends a new message to the session consisting of one or more parts (text, files) and receives an AI assistant response. This is the core endpoint for AI conversations.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to send message to
+
+### Request Body
+
+**Content-Type:** `application/json`
+
+```json
+{
+  "messageID": "string (optional, pattern: ^msg)",
+  "providerID": "string (required)",
+  "modelID": "string (required)",
+  "mode": "string (optional)",
+  "system": "string (optional)",
+  "tools": "object (optional, tool_name: boolean)",
+  "parts": "array (required, Part[])"
+}
+```
+
+#### Required Fields
+
+- **providerID**: AI provider to use (e.g., "openai", "anthropic", "google")
+- **modelID**: Specific model (e.g., "gpt-4", "claude-3-5-sonnet", "gemini-pro")
+- **parts**: Array of message parts (minimum 1 required)
+
+#### Optional Fields
+
+- **messageID**: Custom message ID (auto-generated if not provided, must start with "msg")
+- **mode**: Conversation mode (defaults to "build")
+- **system**: Custom system prompt override
+- **tools**: Enable/disable specific tools (object mapping tool names to boolean)
+
+### Request Parts
+
+Parts are the building blocks of messages. Each part has a specific type and structure:
+
+#### Text Part Input
+
+```json
+{
+  "type": "text",
+  "text": "Your message content here",
+  "id": "string (optional)",
+  "synthetic": "boolean (optional)",
+  "time": {
+    "start": "number (optional)",
+    "end": "number (optional)"
+  }
+}
+```
+
+#### File Part Input
+
+```json
+{
+  "type": "file",
+  "mime": "string (required)",
+  "url": "string (required)",
+  "id": "string (optional)",
+  "filename": "string (optional)",
+  "source": "object (optional)"
+}
+```
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [AssistantMessage](#assistantmessage-schema)
+
+The response contains the complete assistant message with metadata and usage statistics.
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerID": "openai",
+    "modelID": "gpt-4",
+    "parts": [
+      {
+        "type": "text",
+        "text": "Hey sup, explain how to use the API"
+      }
+    ]
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "id": "msg_8791e0534001cLXqvZFhHLVoNb",
+  "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+  "role": "assistant",
+  "time": {
+    "created": 1705315800000,
+    "completed": 1705315820000
+  },
+  "system": ["Default system prompt"],
+  "modelID": "gpt-4",
+  "providerID": "openai",
+  "mode": "build",
+  "path": {
+    "cwd": "/path/to/project",
+    "root": "/path/to/project"
+  },
+  "summary": false,
+  "cost": 0.0052,
+  "tokens": {
+    "input": 150,
+    "output": 75,
+    "reasoning": 0,
+    "cache": {
+      "read": 0,
+      "write": 100
+    }
+  }
+}
+```
+
+### Understanding Parts in Responses
+
+When you send a message, the system processes your input parts and creates response parts. Here's how your example part would be structured:
+
+**Your Input Part:**
+
+```json
+{
+  "type": "text",
+  "text": "hey sup"
+}
+```
+
+**Resulting Part in System:**
+
+```json
+{
+  "id": "prt_8791e0534002r7ff1LA0JqYRbP",
+  "type": "text",
+  "text": "hey sup",
+  "synthetic": false,
+  "time": {
+    "start": 0,
+    "end": 0
+  },
+  "messageID": "msg_8791e0534001cLXqvZFhHLVoNb",
+  "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj"
+}
+```
+
+The system automatically adds:
+
+- **id**: Auto-generated part ID with "prt\_" prefix
+- **messageID**: Links to the containing message
+- **sessionID**: Links to the containing session
+- **synthetic**: `false` for user input, `true` for system-generated content
+- **time**: Timing information for the part
+
+### Advanced Examples
+
+#### Multiple Text Parts
+
+```json
+{
+  "providerID": "anthropic",
+  "modelID": "claude-3-5-sonnet",
+  "parts": [
+    {
+      "type": "text",
+      "text": "I need help with two things:"
+    },
+    {
+      "type": "text",
+      "text": "1. Fix this bug in my code"
+    },
+    {
+      "type": "text",
+      "text": "2. Write some tests"
+    }
+  ]
+}
+```
+
+#### File Upload
+
+```json
+{
+  "providerID": "openai",
+  "modelID": "gpt-4-vision",
+  "parts": [
+    {
+      "type": "text",
+      "text": "Analyze this image"
+    },
+    {
+      "type": "file",
+      "mime": "image/png",
+      "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+      "filename": "screenshot.png"
+    }
+  ]
+}
+```
+
+#### Custom Tools Configuration
+
+```json
+{
+  "providerID": "openai",
+  "modelID": "gpt-4",
+  "tools": {
+    "bash": true,
+    "read": true,
+    "write": false,
+    "edit": true
+  },
+  "parts": [
+    {
+      "type": "text",
+      "text": "Read the config file and show me the database settings"
+    }
+  ]
+}
+```
+
+### Implementation Details
+
+The message processing flow:
+
+1. **Input Validation**: Validates request structure and required fields
+2. **Revert Cleanup**: Processes any pending session reverts
+3. **User Message Creation**: Creates user message with auto-generated ID
+4. **Part Processing**: Processes each input part and adds metadata
+5. **Plugin Hooks**: Triggers `chat.message` plugins
+6. **Storage**: Saves message and parts to persistent storage
+7. **AI Processing**: Sends to configured AI provider for response
+8. **Response Assembly**: Creates assistant message with usage data
+9. **Event Emission**: Publishes real-time events for UI updates
+
+### Error Handling
+
+The endpoint handles various error scenarios:
+
+- **Invalid provider/model**: Returns 400 with provider authentication error
+- **Message too long**: Returns 400 with length limit error
+- **File processing errors**: Continues with partial content
+- **AI provider errors**: Returns error details in response
+- **Session not found**: Returns 404 error
+
+---
+
+## GET /session/{id}/message
+
+List all messages in a session with their parts.
+
+**Operation ID:** `session.messages`
+
+### Description
+
+Retrieves all messages in a session, including both user and assistant messages, along with all their associated parts. Messages are returned in chronological order.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to list messages for
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** Array of Message Objects
+
+Each message object contains:
+
+```json
+{
+  "info": "MessageInfo",
+  "parts": "Part[]"
+}
+```
+
+### Implementation Details
+
+- Messages are sorted by ID in ascending order (chronological)
+- Each message includes complete metadata and all associated parts
+- Parts within each message are also sorted by ID
+- Returns both user messages and assistant responses
+
+### Example Response
+
+```json
+[
+  {
+    "info": {
+      "id": "msg_001abc123def456",
+      "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+      "role": "user",
+      "time": {
+        "created": 1705315800000
+      }
+    },
+    "parts": [
+      {
+        "id": "prt_001abc123def456",
+        "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+        "messageID": "msg_001abc123def456",
+        "type": "text",
+        "text": "hey sup",
+        "synthetic": false,
+        "time": {
+          "start": 0,
+          "end": 0
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_002def456ghi789",
+      "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+      "role": "assistant",
+      "time": {
+        "created": 1705315820000,
+        "completed": 1705315825000
+      },
+      "modelID": "gpt-4",
+      "providerID": "openai",
+      "mode": "build",
+      "path": {
+        "cwd": "/path/to/project",
+        "root": "/path/to/project"
+      },
+      "cost": 0.0052,
+      "tokens": {
+        "input": 150,
+        "output": 75,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 100
+        }
+      }
+    },
+    "parts": [
+      {
+        "id": "prt_002def456ghi789",
+        "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+        "messageID": "msg_002def456ghi789",
+        "type": "text",
+        "text": "Hey! I'm here to help you with coding tasks...",
+        "synthetic": false
+      }
+    ]
+  }
+]
+```
+
+### Usage Examples
+
+```bash
+# Get all messages in a session
+curl http://localhost:3000/session/ses_abc123def456/message
+
+# Using JavaScript SDK
+const messages = await client.session.messages('ses_abc123def456')
+console.log(`Session has ${messages.length} messages`)
+
+# Process each message and its parts
+for (const message of messages) {
+  console.log(`${message.info.role}: ${message.parts.length} parts`)
+  for (const part of message.parts) {
+    if (part.type === 'text') {
+      console.log(`  Text: ${part.text.substring(0, 50)}...`)
+    } else if (part.type === 'file') {
+      console.log(`  File: ${part.filename}`)
+    }
+  }
+}
+```
+
+### Message Structure
+
+The response contains messages with two main components:
+
+#### Message Info
+
+Contains metadata about the message:
+
+- **User Messages**: Include `id`, `sessionID`, `role`, and `time.created`
+- **Assistant Messages**: Include additional fields like `modelID`, `providerID`, `cost`, `tokens`, etc.
+
+#### Message Parts
+
+Array of parts that make up the message content:
+
+- **Text Parts**: Contain `text` field with the actual content
+- **File Parts**: Contain file metadata and data URLs
+- **Tool Parts**: Contain tool execution information
+- **Other Part Types**: Include step markers, snapshots, patches, etc.
+
+Each part has:
+
+- `id`: Unique part identifier
+- `messageID`: Links to containing message
+- `sessionID`: Links to containing session
+- `type`: Part type (text, file, tool, etc.)
+- Type-specific fields based on the part type
+
+---
+
+## GET /session/{id}/message/{messageID}
+
+Get a specific message from a session with all its parts.
+
+**Operation ID:** `session.message`
+
+### Description
+
+Retrieves a single message by ID along with all its associated parts. This is useful for fetching specific messages without loading the entire conversation history.
+
+### Parameters
+
+- **id** (path, string, required): Session ID containing the message
+- **messageID** (path, string, required): Message ID to retrieve
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** Single Message Object
+
+```json
+{
+  "info": "MessageInfo",
+  "parts": "Part[]"
+}
+```
+
+### Example Response
+
+```json
+{
+  "info": {
+    "id": "msg_8791e0534001cLXqvZFhHLVoNb",
+    "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+    "role": "assistant",
+    "time": {
+      "created": 1705315820000,
+      "completed": 1705315825000
+    },
+    "system": ["You are a helpful coding assistant..."],
+    "modelID": "gpt-4",
+    "providerID": "openai",
+    "mode": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/home/user/project"
+    },
+    "summary": false,
+    "cost": 0.0052,
+    "tokens": {
+      "input": 150,
+      "output": 75,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 100
+      }
+    }
+  },
+  "parts": [
+    {
+      "id": "prt_8791e0534002r7ff1LA0JqYRbP",
+      "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+      "messageID": "msg_8791e0534001cLXqvZFhHLVoNb",
+      "type": "text",
+      "text": "Hey! I'm here to help you with your coding tasks...",
+      "synthetic": false
+    }
+  ]
+}
+```
+
+### Usage Examples
+
+```bash
+# Get a specific message
+curl http://localhost:3000/session/ses_abc123def456/message/msg_xyz789
+
+# Using JavaScript SDK
+const message = await client.session.message('ses_abc123def456', 'msg_xyz789')
+console.log(`Message has ${message.parts.length} parts`)
+```
+
+### Error Handling
+
+- **Session not found**: Returns 404 if session doesn't exist
+- **Message not found**: Returns 404 if message doesn't exist in session
+- **Invalid IDs**: Returns 400 for malformed session or message IDs
+
+---
+
+## POST /session/{id}/init
+
+Initialize a session by analyzing the application and creating an AGENTS.md file.
+
+**Operation ID:** `session.init`
+
+### Description
+
+Analyzes the current application structure and creates or improves an AGENTS.md file with project-specific information for AI agents. This is typically used to bootstrap a session with context about the codebase.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to initialize
+
+### Request Body
+
+**Content-Type:** `application/json`
+
+```json
+{
+  "messageID": "string (required, pattern: ^msg)",
+  "providerID": "string (required)",
+  "modelID": "string (required)"
+}
+```
+
+#### Required Fields
+
+- **messageID**: Custom message ID for the initialization message (must start with "msg")
+- **providerID**: AI provider to use for analysis (e.g., "openai", "anthropic", "google")
+- **modelID**: Specific model for analysis (e.g., "gpt-4", "claude-3-5-sonnet")
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** `boolean` (returns `true` on success)
+
+### Implementation Details
+
+The initialization process:
+
+1. **Codebase Analysis**: The AI agent analyzes the project structure, build files, configuration, and existing documentation
+2. **AGENTS.md Creation**: Creates or improves an AGENTS.md file containing:
+   - Build/lint/test commands (especially single test execution)
+   - Code style guidelines (imports, formatting, types, naming conventions)
+   - Error handling patterns
+   - Repository-specific rules and conventions
+3. **Rule Integration**: Incorporates existing rules from:
+   - `.cursor/rules/` or `.cursorrules` files
+   - `.github/copilot-instructions.md`
+4. **App Initialization**: Triggers additional app-level initialization
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/init \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messageID": "msg_init_001",
+    "providerID": "openai",
+    "modelID": "gpt-4"
+  }'
+```
+
+### Example Response
+
+```json
+true
+```
+
+### Initialization Prompt
+
+The AI receives this analysis prompt:
+
+> Please analyze this codebase and create an AGENTS.md file containing:
+>
+> 1. Build/lint/test commands - especially for running a single test
+> 2. Code style guidelines including imports, formatting, types, naming conventions, error handling, etc.
+>
+> The file you create will be given to agentic coding agents (such as yourself) that operate in this repository. Make it about 20 lines long.
+> If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (in .github/copilot-instructions.md), make sure to include them.
+
+### Generated AGENTS.md Content
+
+A typical AGENTS.md file might contain:
+
+```markdown
+# Agent Guidelines
+
+## Build & Test Commands
+
+- `npm run build` - Build the project
+- `npm test` - Run all tests
+- `npm test -- --testPathPattern=filename` - Run specific test file
+- `npm run lint` - Check code style
+- `npm run typecheck` - Verify TypeScript types
+
+## Code Style
+
+- Use TypeScript with strict typing
+- Prefer const over let, avoid var
+- Use absolute imports from src/
+- Handle errors explicitly, avoid try/catch chains
+- Use kebab-case for file names
+- Use PascalCase for components, camelCase for functions
+
+## Testing
+
+- Write tests alongside implementation files
+- Use Jest and React Testing Library
+- Test happy path and edge cases
+- Mock external dependencies
+```
+
+### Usage Examples
+
+```bash
+# Initialize session for a new project
+curl -X POST http://localhost:3000/session/ses_new123/init \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messageID": "msg_init_new",
+    "providerID": "anthropic",
+    "modelID": "claude-3-5-sonnet"
+  }'
+
+# Using JavaScript SDK
+const success = await client.session.init('ses_abc123def456', {
+  messageID: 'msg_init_001',
+  providerID: 'openai',
+  modelID: 'gpt-4'
+})
+console.log(`Initialization ${success ? 'completed' : 'failed'}`)
+```
+
+### When to Use
+
+- **New Sessions**: Initialize a session before starting development work
+- **Project Onboarding**: Help AI understand project structure and conventions
+- **AGENTS.md Updates**: Refresh guidelines when project structure changes
+- **Team Synchronization**: Ensure all agents follow consistent patterns
+
+The initialization creates a foundation message that subsequent AI interactions can reference for context about the project's structure and conventions.
+
+---
+
+## POST /session/{id}/abort
+
+Abort a currently running session operation.
+
+**Operation ID:** `session.abort`
+
+### Description
+
+Immediately stops any active AI processing or tool execution for the specified session. This is useful for canceling long-running operations or stopping unwanted AI responses.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to abort
+
+### Request Body
+
+None required.
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** `boolean`
+
+- Returns `true` if an active operation was found and aborted
+- Returns `false` if no active operation was found for the session
+
+### Implementation Details
+
+- Checks for pending operations using an internal AbortController
+- Immediately cancels any active AI provider requests
+- Stops tool execution and streaming responses
+- Cleans up pending operation state
+- Safe to call even if no operation is running
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/abort
+```
+
+### Example Response
+
+```json
+true
+```
+
+### Usage Examples
+
+```bash
+# Abort a running session
+curl -X POST http://localhost:3000/session/ses_abc123def456/abort
+
+# Using JavaScript SDK
+const aborted = await client.session.abort('ses_abc123def456')
+if (aborted) {
+  console.log('Session operation was aborted')
+} else {
+  console.log('No active operation to abort')
+}
+```
+
+### When to Use
+
+- **Long-running Operations**: Cancel operations that are taking too long
+- **Unwanted Responses**: Stop AI from continuing an undesired response
+- **Error Recovery**: Reset session state when operations get stuck
+- **User Cancellation**: Respond to user requests to stop processing
+
+### Effects of Aborting
+
+- **Active AI Requests**: Immediately canceled at the provider level
+- **Tool Execution**: Any running tools are stopped mid-execution
+- **Streaming**: Real-time response streams are terminated
+- **Message State**: Partial messages may remain in incomplete state
+- **Session Integrity**: Session remains valid and can accept new messages
+
+---
+
+## POST /session/{id}/share
+
+Share a session publicly and get a shareable URL.
+
+**Operation ID:** `session.share`
+
+### Description
+
+Makes a session publicly accessible via a generated share URL. Shared sessions can be viewed by anyone with the URL, making them useful for collaboration, demos, or public sharing of conversations.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to share
+
+### Request Body
+
+None required.
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Session](#session-schema) (updated with share information)
+
+The response includes the complete session object with the new `share` field containing the public URL.
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/share
+```
+
+### Example Response
+
+```json
+{
+  "id": "ses_abc123def456",
+  "title": "Debug authentication issue",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315800000
+  },
+  "share": {
+    "url": "https://opencode.ai/share/ses_abc123def456"
+  }
+}
+```
+
+### Usage Examples
+
+```bash
+# Share a session
+curl -X POST http://localhost:3000/session/ses_abc123def456/share
+
+# Using JavaScript SDK
+const sharedSession = await client.session.share('ses_abc123def456')
+console.log(`Session shared at: ${sharedSession.share.url}`)
+
+# Share and copy URL to clipboard
+const session = await client.session.share('ses_abc123def456')
+navigator.clipboard.writeText(session.share.url)
+```
+
+### Share URL Structure
+
+Share URLs follow the pattern:
+
+```
+https://opencode.ai/share/{sessionID}
+```
+
+### Shared Session Features
+
+- **Public Access**: Anyone with the URL can view the conversation
+- **Read-only**: Shared sessions are view-only, no interaction possible
+- **Real-time Updates**: Shared sessions show live updates as conversation continues
+- **Full History**: Complete message history and parts are visible
+- **No Authentication**: No login required to view shared sessions
+
+### Privacy Considerations
+
+- **Public Visibility**: Shared sessions are accessible to anyone with the URL
+- **Search Engines**: Share URLs may be indexed by search engines
+- **Sensitive Data**: Avoid sharing sessions containing private information
+- **Permanent Links**: Share URLs remain active until explicitly unshared
+
+---
+
+## DELETE /session/{id}/share
+
+Remove public sharing from a session.
+
+**Operation ID:** `session.unshare`
+
+### Description
+
+Removes public access to a previously shared session. The share URL becomes inaccessible immediately, returning the session to private status.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to unshare
+
+### Request Body
+
+None required.
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Session](#session-schema) (updated without share information)
+
+The response includes the complete session object with the `share` field removed.
+
+### Example Request
+
+```bash
+curl -X DELETE http://localhost:3000/session/ses_abc123def456/share
+```
+
+### Example Response
+
+```json
+{
+  "id": "ses_abc123def456",
+  "title": "Debug authentication issue",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315800000
+  }
+}
+```
+
+### Usage Examples
+
+```bash
+# Unshare a session
+curl -X DELETE http://localhost:3000/session/ses_abc123def456/share
+
+# Using JavaScript SDK
+const unsharedSession = await client.session.unshare('ses_abc123def456')
+console.log('Session is no longer publicly shared')
+
+# Check if session is currently shared
+const session = await client.session.get('ses_abc123def456')
+if (session.share) {
+  await client.session.unshare(session.id)
+  console.log('Session was shared, now private')
+} else {
+  console.log('Session is already private')
+}
+```
+
+### Effects of Unsharing
+
+- **Immediate Access Revocation**: Share URL becomes invalid immediately
+- **404 Responses**: Previous share URL now returns "Session not found"
+- **Session Privacy**: Session returns to private, owner-only access
+- **Conversation Continuity**: Session remains fully functional for owner
+- **Re-sharing**: Session can be shared again, generating a new URL
+
+---
+
+## POST /session/{id}/summarize
+
+Generate a summary of the session conversation.
+
+**Operation ID:** `session.summarize`
+
+### Description
+
+Creates an AI-generated summary of the conversation up to this point. The summary helps compress long conversations while preserving key context and decisions. This is particularly useful for maintaining context in lengthy sessions.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to summarize
+
+### Request Body
+
+**Content-Type:** `application/json`
+
+```json
+{
+  "providerID": "string (required)",
+  "modelID": "string (required)"
+}
+```
+
+#### Required Fields
+
+- **providerID**: AI provider to use for summarization (e.g., "openai", "anthropic", "google")
+- **modelID**: Specific model for summarization (e.g., "gpt-4", "claude-3-5-sonnet")
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** `boolean` (returns `true` on success)
+
+### Implementation Details
+
+The summarization process:
+
+1. **Message Analysis**: Reviews all messages since the last summary (or session start)
+2. **Context Preservation**: Maintains important decisions, code changes, and insights
+3. **AI Processing**: Uses specified provider/model to generate comprehensive summary
+4. **Summary Storage**: Creates a special assistant message marked with `summary: true`
+5. **Context Compression**: Future operations can reference the summary instead of full history
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/summarize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerID": "openai",
+    "modelID": "gpt-4"
+  }'
+```
+
+### Example Response
+
+```json
+true
+```
+
+### Usage Examples
+
+```bash
+# Summarize a session
+curl -X POST http://localhost:3000/session/ses_abc123def456/summarize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerID": "anthropic",
+    "modelID": "claude-3-5-sonnet"
+  }'
+
+# Using JavaScript SDK
+const success = await client.session.summarize('ses_abc123def456', {
+  providerID: 'openai',
+  modelID: 'gpt-4'
+})
+console.log(`Summarization ${success ? 'completed' : 'failed'}`)
+```
+
+### Summary Content
+
+A typical summary includes:
+
+- **Key Decisions**: Important choices made during the conversation
+- **Code Changes**: Files modified, functions added, bugs fixed
+- **Context**: Project background and current state
+- **Next Steps**: Planned or suggested future actions
+- **Issues**: Problems encountered and solutions applied
+
+### When to Use
+
+- **Long Sessions**: Compress conversations exceeding 50+ messages
+- **Context Management**: Preserve important information before starting new topics
+- **Handoffs**: Prepare session context for sharing or team collaboration
+- **Performance**: Reduce token usage by summarizing old conversation parts
+
+---
+
+## POST /session/{id}/revert
+
+Revert the session to a previous point in the conversation.
+
+**Operation ID:** `session.revert`
+
+### Description
+
+Temporarily hides messages and parts after a specified point, effectively "rewinding" the conversation. This allows exploring alternative conversation paths while preserving the original content for potential restoration.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to revert
+
+### Request Body
+
+**Content-Type:** `application/json`
+
+```json
+{
+  "messageID": "string (required, pattern: ^msg)",
+  "partID": "string (optional, pattern: ^prt)"
+}
+```
+
+#### Required Fields
+
+- **messageID**: Message ID to revert to (messages after this point will be hidden)
+
+#### Optional Fields
+
+- **partID**: Specific part ID within the message to revert to (parts after this point in the message will be hidden)
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Session](#session-schema) (updated with revert information)
+
+The response includes the session with `revert` field containing the revert state.
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/revert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messageID": "msg_xyz789",
+    "partID": "prt_abc123"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "id": "ses_abc123def456",
+  "title": "Debug authentication issue",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315820000
+  },
+  "revert": {
+    "messageID": "msg_xyz789",
+    "partID": "prt_abc123",
+    "snapshot": "conversation state data",
+    "diff": "changes since revert point"
+  }
+}
+```
+
+### Revert Behavior
+
+When reverting:
+
+1. **Message Hiding**: Messages after the specified message become invisible
+2. **Part Hiding**: If `partID` specified, parts after that part in the message are hidden
+3. **State Preservation**: Original content is preserved for potential restoration
+4. **New Conversations**: New messages can be added from the revert point
+5. **Branching**: Creates alternative conversation paths
+
+### Usage Examples
+
+```bash
+# Revert to a specific message
+curl -X POST http://localhost:3000/session/ses_abc123def456/revert \
+  -H "Content-Type: application/json" \
+  -d '{"messageID": "msg_xyz789"}'
+
+# Revert to a specific part within a message
+curl -X POST http://localhost:3000/session/ses_abc123def456/revert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messageID": "msg_xyz789",
+    "partID": "prt_abc123"
+  }'
+
+# Using JavaScript SDK
+const revertedSession = await client.session.revert('ses_abc123def456', {
+  messageID: 'msg_xyz789'
+})
+console.log('Session reverted to:', revertedSession.revert.messageID)
+```
+
+---
+
+## POST /session/{id}/unrevert
+
+Restore all reverted messages and return to the full conversation.
+
+**Operation ID:** `session.unrevert`
+
+### Description
+
+Removes any active revert state and restores all previously hidden messages and parts. This returns the session to its complete, unrestricted state.
+
+### Parameters
+
+- **id** (path, string, required): Session ID to unrevert
+
+### Request Body
+
+None required.
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Session](#session-schema) (updated without revert information)
+
+The response includes the session with the `revert` field removed.
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/unrevert
+```
+
+### Example Response
+
+```json
+{
+  "id": "ses_abc123def456",
+  "title": "Debug authentication issue",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315825000
+  }
+}
+```
+
+### Usage Examples
+
+```bash
+# Restore full conversation
+curl -X POST http://localhost:3000/session/ses_abc123def456/unrevert
+
+# Using JavaScript SDK
+const restoredSession = await client.session.unrevert('ses_abc123def456')
+console.log('Session fully restored')
+
+# Check revert status before unreverting
+const session = await client.session.get('ses_abc123def456')
+if (session.revert) {
+  await client.session.unrevert(session.id)
+  console.log('Session was reverted, now restored')
+} else {
+  console.log('Session is not reverted')
+}
+```
+
+---
+
+## POST /session/{id}/permissions/{permissionID}
+
+Respond to a permission request from the AI assistant.
+
+**Operation ID:** `postSessionByIdPermissionsByPermissionID`
+
+### Description
+
+Provides a response to a permission request made by an AI assistant during tool execution or sensitive operations. This enables human oversight of AI actions that require explicit approval.
+
+### Parameters
+
+- **id** (path, string, required): Session ID containing the permission request
+- **permissionID** (path, string, required): Permission request ID to respond to
+
+### Request Body
+
+**Content-Type:** `application/json`
+
+```json
+{
+  "response": "string (required, enum: [once, always, reject])"
+}
+```
+
+#### Required Fields
+
+- **response**: Permission response type
+  - `"once"`: Grant permission for this specific request only
+  - `"always"`: Grant permission for this and all future similar requests
+  - `"reject"`: Deny the permission request
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** `boolean` (returns `true` when permission is processed)
+
+### Permission Types
+
+Common permission requests include:
+
+- **File Access**: Reading or writing sensitive files
+- **Command Execution**: Running system commands with potential side effects
+- **Network Requests**: Making external API calls or web requests
+- **Destructive Operations**: Deleting files or modifying critical system state
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3000/session/ses_abc123def456/permissions/perm_xyz789 \
+  -H "Content-Type: application/json" \
+  -d '{"response": "once"}'
+```
+
+### Example Response
+
+```json
+true
+```
+
+### Usage Examples
+
+```bash
+# Grant permission once
+curl -X POST http://localhost:3000/session/ses_abc123def456/permissions/perm_xyz789 \
+  -H "Content-Type: application/json" \
+  -d '{"response": "once"}'
+
+# Grant permission always for this type of request
+curl -X POST http://localhost:3000/session/ses_abc123def456/permissions/perm_xyz789 \
+  -H "Content-Type: application/json" \
+  -d '{"response": "always"}'
+
+# Reject the permission request
+curl -X POST http://localhost:3000/session/ses_abc123def456/permissions/perm_xyz789 \
+  -H "Content-Type: application/json" \
+  -d '{"response": "reject"}'
+
+# Using JavaScript SDK
+const success = await client.session.respondToPermission(
+  'ses_abc123def456',
+  'perm_xyz789',
+  { response: 'once' }
+)
+console.log(`Permission ${success ? 'processed' : 'failed'}`)
+```
+
+### Permission Workflow
+
+1. **AI Request**: Assistant requests permission for a specific action
+2. **Permission Creation**: System creates a permission object with unique ID
+3. **User Notification**: Permission request is surfaced to user via events/UI
+4. **User Response**: User provides response via this endpoint
+5. **Action Execution**: Based on response, action is allowed or denied
+6. **Future Behavior**: "Always" responses create persistent permission rules
+
+### Response Effects
+
+- **"once"**: Action proceeds this time only
+- **"always"**: Action proceeds and similar future actions are auto-approved
+- **"reject"**: Action is blocked and AI receives rejection notice
+
+### Real-time Integration
+
+Permission requests are typically handled via the event stream (`/event` endpoint) which notifies connected clients when permission is needed, allowing for real-time user interaction.
+
+---
+
+## Schemas
+
+### Session Schema
+
+The Session schema represents a conversation session with metadata and state information.
+
+```json
+{
+  "id": "string (pattern: ^ses, required)",
+  "parentID": "string (pattern: ^ses, optional)",
+  "title": "string (required)",
+  "version": "string (required)",
+  "time": {
+    "created": "number (required, unix timestamp)",
+    "updated": "number (required, unix timestamp)"
+  },
+  "share": {
+    "url": "string (optional, public share URL)"
+  },
+  "revert": {
+    "messageID": "string (optional, message to revert to)",
+    "partID": "string (optional, part to revert to)",
+    "snapshot": "string (optional, state snapshot)",
+    "diff": "string (optional, diff information)"
+  }
+}
+```
+
+#### Example Session
+
+```json
+{
+  "id": "ses_abc123def456",
+  "parentID": "ses_parent789",
+  "title": "Debug authentication issue",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315825000
+  },
+  "share": {
+    "url": "https://opencode.ai/share/ses_abc123def456"
+  },
+  "revert": {
+    "messageID": "msg_xyz789",
+    "partID": "prt_abc123",
+    "snapshot": "conversation state data",
+    "diff": "changes since revert point"
+  }
+}
+```
+
+### Message Schemas
+
+Messages represent individual conversation turns and come in two types: user messages and assistant messages.
+
+#### Base Message Properties
+
+All messages share these common properties:
+
+```json
+{
+  "id": "string (pattern: ^msg, required)",
+  "sessionID": "string (pattern: ^ses, required)",
+  "role": "string (required, 'user' | 'assistant')",
+  "time": {
+    "created": "number (required, unix timestamp)",
+    "completed": "number (optional, unix timestamp for assistant messages)"
+  }
+}
+```
+
+#### User Message Schema
+
+```json
+{
+  "id": "msg_001abc123def456",
+  "sessionID": "ses_abc123def456",
+  "role": "user",
+  "time": {
+    "created": 1705315800000
+  }
+}
+```
+
+#### Assistant Message Schema
+
+Assistant messages include additional metadata about AI processing:
+
+```json
+{
+  "id": "string (pattern: ^msg, required)",
+  "sessionID": "string (pattern: ^ses, required)",
+  "role": "assistant",
+  "time": {
+    "created": "number (required)",
+    "completed": "number (optional)"
+  },
+  "system": "string[] (required, system prompts)",
+  "modelID": "string (required)",
+  "providerID": "string (required)",
+  "mode": "string (required)",
+  "path": {
+    "cwd": "string (required, working directory)",
+    "root": "string (required, project root)"
+  },
+  "summary": "boolean (required, whether this is a summary message)",
+  "cost": "number (required, processing cost)",
+  "tokens": {
+    "input": "number (required)",
+    "output": "number (required)",
+    "reasoning": "number (required)",
+    "cache": {
+      "read": "number (required)",
+      "write": "number (required)"
+    }
+  },
+  "error": "object (optional, error information)"
+}
+```
+
+#### Complete Assistant Message Example
+
+```json
+{
+  "id": "msg_8791e0534001cLXqvZFhHLVoNb",
+  "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+  "role": "assistant",
+  "time": {
+    "created": 1705315820000,
+    "completed": 1705315825000
+  },
+  "system": ["You are a helpful AI coding assistant...", "Current working directory: /home/user/project"],
+  "modelID": "gpt-4",
+  "providerID": "openai",
+  "mode": "build",
+  "path": {
+    "cwd": "/home/user/project",
+    "root": "/home/user/project"
+  },
+  "summary": false,
+  "cost": 0.0052,
+  "tokens": {
+    "input": 150,
+    "output": 75,
+    "reasoning": 0,
+    "cache": {
+      "read": 0,
+      "write": 100
+    }
+  }
+}
+```
+
+### Part Schemas
+
+Parts are the content components within messages. There are several types of parts:
+
+#### Base Part Properties
+
+All parts share these common properties:
+
+```json
+{
+  "id": "string (pattern: ^prt, required)",
+  "sessionID": "string (pattern: ^ses, required)",
+  "messageID": "string (pattern: ^msg, required)",
+  "type": "string (required)"
+}
+```
+
+#### Text Part Schema
+
+The most common part type for text content:
+
+```json
+{
+  "id": "string (pattern: ^prt, required)",
+  "sessionID": "string (pattern: ^ses, required)",
+  "messageID": "string (pattern: ^msg, required)",
+  "type": "text",
+  "text": "string (required, the actual text content)",
+  "synthetic": "boolean (optional, true for system-generated text)",
+  "time": {
+    "start": "number (optional, start time)",
+    "end": "number (optional, end time)"
+  }
+}
+```
+
+#### Text Part Example
+
+```json
+{
+  "id": "prt_8791e0534002r7ff1LA0JqYRbP",
+  "sessionID": "ses_786e1facfffeqAnV13JeEcI4Bj",
+  "messageID": "msg_8791e0534001cLXqvZFhHLVoNb",
+  "type": "text",
+  "text": "hey sup",
+  "synthetic": false,
+  "time": {
+    "start": 0,
+    "end": 0
+  }
+}
+```
+
+#### File Part Schema
+
+For file uploads and attachments:
+
+```json
+{
+  "id": "string (pattern: ^prt, required)",
+  "sessionID": "string (pattern: ^ses, required)",
+  "messageID": "string (pattern: ^msg, required)",
+  "type": "file",
+  "mime": "string (required, MIME type)",
+  "url": "string (required, data URL or file URL)",
+  "filename": "string (optional, original filename)",
+  "source": "object (optional, source information)"
+}
+```
+
+#### File Part Example
+
+```json
+{
+  "id": "prt_file001abc123",
+  "sessionID": "ses_abc123def456",
+  "messageID": "msg_002def456ghi789",
+  "type": "file",
+  "mime": "image/png",
+  "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+  "filename": "screenshot.png",
+  "source": {
+    "type": "upload",
+    "size": 15234
+  }
+}
+```
+
+#### Tool Part Schema
+
+For AI tool execution results:
+
+```json
+{
+  "id": "string (pattern: ^prt, required)",
+  "sessionID": "string (pattern: ^ses, required)",
+  "messageID": "string (pattern: ^msg, required)",
+  "type": "tool",
+  "callID": "string (required, tool call identifier)",
+  "tool": "string (required, tool name)",
+  "state": "object (required, tool execution state)"
+}
+```
+
+#### Tool Part Example
+
+```json
+{
+  "id": "prt_tool001xyz789",
+  "sessionID": "ses_abc123def456",
+  "messageID": "msg_003ghi789jkl012",
+  "type": "tool",
+  "callID": "call_bash_001",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "exitCode": 0,
+    "output": "Hello, World!",
+    "command": "echo 'Hello, World!'"
+  }
+}
+```
+
+### Input Schemas
+
+Input schemas define the structure for request bodies when creating messages.
+
+#### Text Part Input
+
+```json
+{
+  "type": "text",
+  "text": "string (required)",
+  "id": "string (optional)",
+  "synthetic": "boolean (optional)",
+  "time": {
+    "start": "number (optional)",
+    "end": "number (optional)"
+  }
+}
+```
+
+#### File Part Input
+
+```json
+{
+  "type": "file",
+  "mime": "string (required)",
+  "url": "string (required)",
+  "id": "string (optional)",
+  "filename": "string (optional)",
+  "source": "object (optional)"
+}
+```
+
+### Error Schema
+
+Error responses follow a consistent structure:
+
+```json
+{
+  "name": "string (required, error type)",
+  "message": "string (required, error description)",
+  "details": "object (optional, additional error context)"
+}
+```
+
+#### Common Error Types
+
+- **ProviderAuthError**: Authentication failed with AI provider
+- **UnknownError**: Unexpected system error
+- **MessageOutputLengthError**: Response exceeded length limits
+- **MessageAbortedError**: Operation was cancelled
+
+#### Error Example
+
+```json
+{
+  "name": "ProviderAuthError",
+  "message": "Invalid API key for OpenAI provider",
+  "details": {
+    "provider": "openai",
+    "statusCode": 401
+  }
+}
+```
+
+### Real-time Events
+
+The Sessions API integrates with the Events API (`/event` endpoint) to provide real-time updates:
+
+#### Session Events
+
+- **Session.Created**: New session created
+- **Session.Updated**: Session metadata changed
+- **Session.Deleted**: Session removed
+
+#### Message Events
+
+- **Message.Created**: New message added to session
+- **Message.Updated**: Message metadata changed
+- **Message.Completed**: Assistant message finished processing
+- **Message.Removed**: Message deleted during revert
+
+#### Part Events
+
+- **Part.Created**: New part added to message
+- **Part.Updated**: Part content or metadata changed
+- **Part.Removed**: Part deleted during revert
+
+These events enable real-time UI updates and collaborative features in applications using the Sessions API.
+
+### Usage Examples
+
+```bash
+# Get all sessions
+curl http://localhost:3000/session
+
+# Using JavaScript SDK
+const sessions = await client.session.list()
+console.log(`Found ${sessions.length} sessions`)
+```
+
+---
+
+## POST /session
+
+Create a new conversation session.
+
+**Operation ID:** `session.create`
+
+### Description
+
+Creates a new conversation session with a unique ID, default title, and initial metadata. The session is immediately available for message interactions.
+
+### Parameters
+
+None required.
+
+### Request Body
+
+None required.
+
+### Response
+
+**Status:** `200 OK`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Session](#session-schema)
+
+**Status:** `400 Bad Request`
+
+**Content-Type:** `application/json`
+
+**Schema:** [Error](#error-schema)
+
+### Implementation Details
+
+- Session ID is auto-generated with descending timestamp pattern (`ses_...`)
+- Default title includes timestamp: "New Session - {ISO date}"
+- Version matches current installation version
+- `time.created` and `time.updated` set to current timestamp
+- Auto-sharing enabled if configured (see `share` config option)
+- Publishes `Event.Updated` event for real-time UI updates
+
+### Example Response
+
+```json
+{
+  "id": "ses_01234567890abcdef",
+  "title": "New Session - 2024-01-15T10:30:00.000Z",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315800000
+  }
+}
+```
+
+### Auto-Sharing Behavior
+
+If auto-sharing is enabled via:
+
+- `OPENCODE_AUTO_SHARE` environment variable, or
+- `share: "auto"` in config
+
+The session will automatically be shared publicly and the response will include:
+
+```json
+{
+  "id": "ses_01234567890abcdef",
+  "title": "New Session - 2024-01-15T10:30:00.000Z",
+  "version": "0.0.3",
+  "time": {
+    "created": 1705315800000,
+    "updated": 1705315800000
+  },
+  "share": {
+    "url": "https://opencode.ai/share/ses_01234567890abcdef"
+  }
+}
+```
+
+### Usage Examples
+
+```bash
+# Create a new session
+curl -X POST http://localhost:3000/session
+
+# Using JavaScript SDK
+const session = await client.session.create()
+console.log(`Created session: ${session.id}`)
 ```
 
 ---
