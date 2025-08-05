@@ -8,6 +8,7 @@
     "start": "NODE_ENV=production bun src/index.tsx",
     "build": "bun run build.ts",
     "build:docs": "bun run src/ssg.tsx",
+    "build:docs:production": "NODE_ENV=production bun run src/ssg.tsx",
     "serve:docs": "bun run src/server.tsx",
     "test": "playwright test"
   },

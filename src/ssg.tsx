@@ -17,7 +17,8 @@ interface DocFile {
 interface SiteConfig {
   title: string;
   description: string;
-  baseUrl?: string;
+  baseUrl: string;
+  basePath: string; // For GitHub Pages subpath
 }
 
 class StaticSiteGenerator {
@@ -84,6 +85,8 @@ class StaticSiteGenerator {
 
   // Create navigation component
   private createNavigation(): React.ReactElement {
+    const basePath = this.config.basePath;
+    
     return (
       <nav className="bg-white border-r border-gray-200 w-64 fixed left-0 top-0 h-full overflow-y-auto">
         <div className="p-6">
@@ -91,7 +94,7 @@ class StaticSiteGenerator {
           <ul className="space-y-2">
             <li>
               <a 
-                href="/" 
+                href={`${basePath}/`}
                 className="block px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
               >
                 🏠 Home
@@ -100,7 +103,7 @@ class StaticSiteGenerator {
             {this.docs.map(doc => (
               <li key={doc.slug}>
                 <a 
-                  href={`/${doc.slug}/`}
+                  href={`${basePath}/${doc.slug}/`}
                   className="block px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md"
                 >
                   {doc.title}
@@ -187,16 +190,72 @@ class StaticSiteGenerator {
   }
 
   // Create page layout
-  private createPageLayout(title: string, content: React.ReactElement): React.ReactElement {
+  private createPageLayout(title: string, content: React.ReactElement, description?: string): React.ReactElement {
     const navigation = this.createNavigation();
+    const pageTitle = title === this.config.title ? title : `${title} - ${this.config.title}`;
+    const pageDescription = description || this.config.description;
+    const baseUrl = this.config.baseUrl || 'https://opencode.ai';
+    const currentUrl = title === this.config.title ? baseUrl : `${baseUrl}/${title.toLowerCase().replace(/\s+/g, '-')}/`;
     
     return (
       <html lang="en">
         <head>
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>{`${title} - ${this.config.title}`}</title>
-          <meta name="description" content={this.config.description} />
+          
+          {/* Basic meta tags */}
+          <title>{pageTitle}</title>
+          <meta name="description" content={pageDescription} />
+          <meta name="author" content="Third-party opencode documentation" />
+          <meta name="keywords" content="opencode, AI, development, documentation, API, coding assistant" />
+          <meta name="robots" content="index, follow" />
+          <link rel="canonical" href={currentUrl} />
+          
+          {/* Open Graph meta tags */}
+          <meta property="og:type" content="website" />
+          <meta property="og:title" content={pageTitle} />
+          <meta property="og:description" content={pageDescription} />
+          <meta property="og:url" content={currentUrl} />
+          <meta property="og:site_name" content={this.config.title} />
+          <meta property="og:image" content={`${baseUrl}/og-image.png`} />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta property="og:image:alt" content={`${this.config.title} - ${pageDescription}`} />
+          <meta property="og:locale" content="en_US" />
+          
+          {/* Twitter Card meta tags */}
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={pageTitle} />
+          <meta name="twitter:description" content={pageDescription} />
+          <meta name="twitter:image" content={`${baseUrl}/og-image.png`} />
+          <meta name="twitter:image:alt" content={`${this.config.title} - ${pageDescription}`} />
+          
+          {/* Additional SEO meta tags */}
+          <meta name="theme-color" content="#1f2937" />
+          <meta name="application-name" content={this.config.title} />
+          <meta name="apple-mobile-web-app-title" content={this.config.title} />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+          
+          {/* Structured data (JSON-LD) */}
+          <script type="application/ld+json">
+            {JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              "name": this.config.title,
+              "description": this.config.description,
+              "url": baseUrl,
+              "author": {
+                "@type": "Organization",
+                "name": "opencode"
+              },
+              "publisher": {
+                "@type": "Organization",
+                "name": "opencode"
+              }
+            })}
+          </script>
+          
           <script src="https://cdn.tailwindcss.com"></script>
           <style>{`
             /* Custom styles for syntax highlighting */
@@ -226,6 +285,8 @@ class StaticSiteGenerator {
   private generateHomepage(): void {
     console.log('🏠 Generating homepage...');
     
+    const basePath = this.config.basePath;
+    
     const homeContent = (
       <div>
         <h1 className="text-3xl font-bold text-gray-900 mb-6">{this.config.title}</h1>
@@ -235,7 +296,7 @@ class StaticSiteGenerator {
           {this.docs.map(doc => (
             <div key={doc.slug} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                <a href={`/${doc.slug}/`} className="text-blue-600 hover:text-blue-800">
+                <a href={`${basePath}/${doc.slug}/`} className="text-blue-600 hover:text-blue-800">
                   {doc.title}
                 </a>
               </h3>
@@ -248,7 +309,7 @@ class StaticSiteGenerator {
       </div>
     );
     
-    const html = this.createPageLayout(this.config.title, homeContent);
+    const html = this.createPageLayout(this.config.title, homeContent, this.config.description);
     const htmlString = '<!DOCTYPE html>\n' + renderToStaticMarkup(html);
     
     writeFileSync(join(this.outputDir, 'index.html'), htmlString);
@@ -262,8 +323,11 @@ class StaticSiteGenerator {
     for (const doc of this.docs) {
       console.log(`  📄 Generating: ${doc.title}`);
       
+      // Extract description from content (first paragraph after title)
+      const description = this.extractDescription(doc.content) || `${doc.title} documentation - ${this.config.description}`;
+      
       const markdownContent = this.createMarkdownRenderer(doc.content);
-      const html = this.createPageLayout(doc.title, markdownContent);
+      const html = this.createPageLayout(doc.title, markdownContent, description);
       const htmlString = '<!DOCTYPE html>\n' + renderToStaticMarkup(html);
       
       // Create directory for the doc
@@ -275,6 +339,26 @@ class StaticSiteGenerator {
     }
     
     console.log('✅ All documentation pages generated');
+  }
+
+  // Extract description from markdown content
+  private extractDescription(content: string): string | null {
+    const lines = content.split('\n');
+    let description = '';
+    
+    // Skip title and find first meaningful paragraph
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('```')) {
+        description = trimmed;
+        break;
+      }
+    }
+    
+    // Clean up and truncate
+    return description 
+      ? description.replace(/\*\*/g, '').replace(/\*/g, '').substring(0, 160)
+      : null;
   }
 
   // Main build method
@@ -296,13 +380,20 @@ class StaticSiteGenerator {
   }
 }
 
+// Get environment to determine if we're building for production or development
+const isProduction = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
+
 // Run the SSG
 const ssg = new StaticSiteGenerator(
   'docs',
   'dist',
   {
     title: 'opencode Documentation',
-    description: 'Comprehensive documentation for the opencode AI-powered development environment.'
+    description: 'Comprehensive documentation for the opencode AI-powered development environment.',
+    baseUrl: isProduction 
+      ? 'https://ericc-ch.github.io/opencode-serve'
+      : 'http://localhost:3000',
+    basePath: isProduction ? '/opencode-serve' : ''
   }
 );
 
