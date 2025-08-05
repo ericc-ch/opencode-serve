@@ -1,0 +1,38 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "github-copilot/gpt-4.1",
+
+  "share": "manual",
+  "autoshare": false,
+
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": false
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "docker",
+        "container",
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "mcr.microsoft.com/playwright/mcp"
+      ],
+      "enabled": false
+    },
+    "duckduckgo": {
+      "type": "local",
+      "command": ["uvx", "duckduckgo-mcp-server"],
+      "enabled": false
+    },
+    "effect": {
+      "type": "local",
+      "command": ["bunx", "effect-mcp@latest"],
+      "enabled": false
+    }
+  }
+}
