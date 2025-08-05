@@ -6,9 +6,11 @@ A beautiful static site generator for Markdown documentation built with React, B
 
 - 📝 **Markdown Support**: Full GitHub Flavored Markdown (GFM) support with tables, task lists, footnotes
 - 🎨 **Syntax Highlighting**: Beautiful code highlighting with Prism.js (supports 100+ languages)
+- 🔍 **Full-Text Search**: Powered by Pagefind with instant, low-bandwidth search
 - 🎯 **Static Generation**: Fast, SEO-friendly static HTML pages (no JavaScript runtime needed)
 - 📱 **Responsive Design**: Mobile-first design with Tailwind CSS
-- 🔍 **Auto Navigation**: Automatic sidebar navigation generation from file structure
+- 🧭 **Auto Navigation**: Automatic sidebar navigation generation from file structure
+- 🏷️ **SEO Optimized**: Complete metadata, Open Graph tags, and structured data
 - ⚡ **Fast**: Built with Bun for optimal performance and instant rebuilds
 - 🧪 **Tested**: Comprehensive Playwright integration tests
 - 🎭 **shadcn/ui Ready**: Integrated with shadcn/ui components for consistent design
@@ -31,6 +33,7 @@ This command will:
 - 🔍 Automatically discover all `.md` files in the `docs/` directory  
 - 🎨 Process them with syntax highlighting and GFM features
 - 📄 Generate static HTML pages with navigation
+- 🔎 Create a full-text search index with Pagefind
 - 📁 Output everything to the `dist/` directory
 - ✅ Generate **9 pages total** (1 homepage + 8 documentation pages)
 

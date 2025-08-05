@@ -91,6 +91,12 @@ class StaticSiteGenerator {
       <nav className="bg-white border-r border-gray-200 w-64 fixed left-0 top-0 h-full overflow-y-auto">
         <div className="p-6">
           <h1 className="text-xl font-bold text-gray-900 mb-6">{this.config.title}</h1>
+          
+          {/* Search component */}
+          <div className="mb-6">
+            <div id="search" className="pagefind-search"></div>
+          </div>
+          
           <ul className="space-y-2">
             <li>
               <a 
@@ -257,6 +263,11 @@ class StaticSiteGenerator {
           </script>
           
           <script src="https://cdn.tailwindcss.com"></script>
+          
+          {/* Pagefind CSS and JS */}
+          <link href={`${this.config.basePath || ''}/pagefind/pagefind-ui.css`} rel="stylesheet" />
+          <script src={`${this.config.basePath || ''}/pagefind/pagefind-ui.js`} type="text/javascript"></script>
+          
           <style>{`
             /* Custom styles for syntax highlighting */
             .token.comment,
@@ -265,7 +276,48 @@ class StaticSiteGenerator {
             .token.cdata {
               color: #636f88;
             }
+            
+            /* Pagefind UI customization */
+            .pagefind-ui__search-input {
+              border-radius: 0.375rem;
+              border: 1px solid #d1d5db;
+              padding: 0.5rem 0.75rem;
+              font-size: 0.875rem;
+            }
+            
+            .pagefind-ui__results-area {
+              margin-top: 1rem;
+            }
+            
+            .pagefind-ui__result {
+              margin-bottom: 0.75rem;
+              padding: 0.75rem;
+              border: 1px solid #e5e7eb;
+              border-radius: 0.375rem;
+              background-color: #ffffff;
+            }
+            
+            .pagefind-ui__result-title a {
+              color: #2563eb;
+              text-decoration: none;
+              font-weight: 600;
+            }
+            
+            .pagefind-ui__result-title a:hover {
+              color: #1d4ed8;
+            }
           `}</style>
+          
+          <script>{`
+            window.addEventListener('DOMContentLoaded', () => {
+              new PagefindUI({
+                element: "#search",
+                showSubResults: true,
+                excerptLength: 15
+                ${this.config.basePath ? `, baseUrl: "${this.config.basePath}/"` : ''}
+              });
+            });
+          `}</script>
         </head>
         <body className="bg-gray-50">
           {navigation}
