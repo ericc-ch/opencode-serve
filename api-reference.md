@@ -1,0 +1,225 @@
+# opencode API Reference
+
+A comprehensive REST API for integrating with the opencode AI-powered development environment.
+
+## Quick Start
+
+1. **Start the opencode server** (defaults to `http://localhost:8080`)
+2. **Connect to real-time events**:
+   ```javascript
+   const events = new EventSource("http://localhost:8080/event")
+   events.onmessage = (e) => console.log(JSON.parse(e.data))
+   ```
+3. **Create a session and start chatting**:
+
+   ```bash
+   # Create session
+   curl -X POST http://localhost:8080/session
+
+   # Send message (requires providerID, modelID, and parts)
+   curl -X POST http://localhost:8080/session/{session-id}/message \
+     -H "Content-Type: application/json" \
+     -d '{
+       "providerID": "anthropic",
+       "modelID": "claude-3-sonnet-20240229",
+       "parts": [{"type": "text", "text": "Help me debug this function"}]
+     }'
+   ```
+
+## API Overview
+
+### 🔄 [Events API](./events.md)
+
+Real-time updates via Server-Sent Events
+
+- Subscribe to live session updates, file changes, and system events
+- **Endpoint**: `GET /event`
+
+### ⚙️ [App API](./app.md)
+
+Application information and lifecycle
+
+- Get system info, paths, and initialization status
+- **Endpoints**: `GET /app`, `POST /app/init`
+
+### 🔧 [Config API](./config.md)
+
+Configuration and AI provider management
+
+- Access settings, keybinds, modes, and available AI models
+- **Endpoints**: `GET /config`, `GET /config/providers`
+
+### 💬 [Sessions API](./sessions.md)
+
+AI conversation management
+
+- Create, manage, and interact with AI conversation sessions
+- **Key Endpoints**:
+  - `GET /session` - List all sessions
+  - `POST /session` - Create new session
+  - `POST /session/{id}/message` - Send message to AI
+  - Plus 14+ additional session operations
+
+### 🔍 [Find API](./find.md)
+
+Code and file search capabilities
+
+- Search text in files, find files by name, lookup code symbols
+- **Endpoints**: `GET /find`, `GET /find/file`, `GET /find/symbol`
+
+### 📁 [File & Workspace APIs](./file-mode-log.md)
+
+File operations and workspace management
+
+- Read files, check status, manage AI modes, and logging
+- **Endpoints**: `GET /file`, `GET /file/status`, `GET /mode`, `POST /log`
+
+## Common Use Cases
+
+### Building an IDE Extension
+
+```javascript
+// 1. Connect to events for real-time updates
+const events = new EventSource("/event")
+
+// 2. Get available AI models
+const providers = await fetch("/config/providers").then((r) => r.json())
+
+// 3. Create session when user starts chat
+const session = await fetch("/session", { method: "POST" }).then((r) => r.json())
+
+// 4. Send user messages to AI (requires proper format)
+const response = await fetch(`/session/${session.id}/message`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    providerID: "anthropic",
+    modelID: "claude-3-sonnet-20240229",
+    parts: [{ type: "text", text: userMessage }],
+  }),
+})
+```
+
+### Automating Code Analysis
+
+```bash
+# Find all TODO comments
+curl "http://localhost:8080/find?pattern=TODO"
+
+# Get current file status
+curl http://localhost:8080/file/status
+
+# Read specific file
+curl "http://localhost:8080/file?path=src/main.js"
+
+# Find function definitions
+curl "http://localhost:8080/find/symbol?query=calculateTotal"
+```
+
+### Building a Custom UI
+
+```javascript
+// Get app configuration for UI setup
+const config = await fetch("/config").then((r) => r.json())
+
+// List existing sessions for sidebar
+const sessions = await fetch("/session").then((r) => r.json())
+
+// Get available modes for mode switcher
+const modes = await fetch("/mode").then((r) => r.json())
+
+// Listen for real-time updates
+events.addEventListener("message", (e) => {
+  const event = JSON.parse(e.data)
+  if (event.type === "session.updated") {
+    updateSessionInUI(event.properties)
+  }
+})
+```
+
+## Data Schemas
+
+All request/response formats are documented in **[Schemas Reference](./schemas.md)**:
+
+- **Event** - Real-time event structures (17 event types)
+- **Session** - Conversation metadata and state
+- **Config** - Complete configuration options
+- **App** - Application environment info
+- **Error** - Standardized error responses
+
+## Authentication & Security
+
+Currently operates as a local service without authentication. The API is designed for:
+
+- ✅ Local development environment integration
+- ✅ IDE extensions and editor plugins
+- ✅ Build tools and automation scripts
+- ❌ Remote access (security considerations)
+- ❌ Multi-user environments (single-user focused)
+
+## API Characteristics
+
+| Feature           | Details                                |
+| ----------------- | -------------------------------------- |
+| **Base URL**      | `http://localhost:8080` (configurable) |
+| **Format**        | REST API with JSON                     |
+| **Real-time**     | Server-Sent Events (SSE)               |
+| **Versioning**    | Semantic versioning (current: 0.0.3)   |
+| **Rate Limiting** | None (local use)                       |
+| **Pagination**    | Not implemented (returns all results)  |
+
+## Error Handling
+
+All endpoints return standard HTTP status codes with consistent error format:
+
+```json
+{
+  "data": {
+    "message": "Session not found",
+    "code": "SESSION_NOT_FOUND",
+    "sessionId": "ses_invalid123"
+  }
+}
+```
+
+**Common Status Codes**:
+
+- `200` - Success
+- `400` - Bad Request (validation errors)
+- `404` - Resource not found
+- `500` - Internal server error
+
+## SDKs & Integrations
+
+### Official SDKs
+
+- **JavaScript/TypeScript**: `@opencode-ai/sdk`
+- **Go**: `github.com/sst/opencode-sdk-go`
+
+### Community Integrations
+
+- **VS Code Extension**: Available in marketplace
+- **GitHub Action**: Available in GitHub Actions marketplace
+
+## Next Steps
+
+1. **Start Simple**: Try the [Quick Start](#quick-start) examples above
+2. **Explore by Use Case**: Pick a [common use case](#common-use-cases) that matches your needs
+3. **Dive Deep**: Read the detailed documentation for specific APIs:
+   - Building chat interfaces → [Sessions API](./sessions.md)
+   - Real-time updates → [Events API](./events.md)
+   - Code search features → [Find API](./find.md)
+   - Configuration management → [Config API](./config.md)
+4. **Check Schemas**: Review [Schemas Reference](./schemas.md) for data formats
+5. **Use SDKs**: Consider using official SDKs for your programming language
+
+## Support
+
+- **Full OpenAPI Spec**: [`opencode-openapi.json`](./opencode-openapi.json)
+- **Documentation**: [https://opencode.ai/docs](https://opencode.ai/docs)
+- **Issues & Bugs**: [GitHub Issues](https://github.com/sst/opencode/issues)
+- **Community**: Join the opencode community for help and discussions
+
+---
+
+_This API enables powerful integrations with opencode's AI development environment. Whether you're building IDE extensions, automation tools, or custom interfaces, these endpoints provide comprehensive access to AI conversations, file operations, and workspace management._
