@@ -202,7 +202,7 @@ The Session schema represents a conversation session with metadata and state inf
 
 - **id** (string, required): Unique session identifier (pattern: `^ses`)
 - **parentID** (string, optional): Parent session ID for forked sessions (pattern: `^ses`)
-- **title** (string, required): Human-readable session title
+- **title** (string, required): Human-readable session title. Starts as "New Session - {ISO timestamp}" and is automatically updated by the LLM after the first message.
 - **version** (string, required): Application version when session was created
 - **time** (object, required): Timing information
   - **created** (number, required): Unix timestamp when created

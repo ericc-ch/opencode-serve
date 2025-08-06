@@ -91,7 +91,7 @@ Fired when session information is modified, including title changes, sharing sta
 
 **Triggered when:**
 
-- Session title is updated
+- **Session title is automatically updated** (happens after first message in new sessions)
 - Session sharing status is changed (shared/unshared)
 - Session metadata is modified
 - Session revert state changes
