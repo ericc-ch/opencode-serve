@@ -6,21 +6,6 @@
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
       "enabled": true
-    },
-    "playwright": {
-      "type": "local",
-      "command": [
-        "docker",
-        "container",
-        "run",
-        "-i",
-        "--rm",
-        "--init",
-        "--network",
-        "host",
-        "mcr.microsoft.com/playwright/mcp"
-      ],
-      "enabled": true
     }
   }
 }
