@@ -1,0 +1,76 @@
+:root {
+  /* Brand (light fallback) - blue palette */
+  --vp-c-brand-1: #2f6feb; /* primary */
+  --vp-c-brand-2: #255cc7; /* hover */
+  --vp-c-brand-3: #1d4799; /* active/deeper */
+  --vp-c-brand-soft: #0f264a; /* soft background tint */
+}
+:root.dark {
+  /* Layered dark neutrals */
+  --vp-c-bg: #0f1012;        /* page background */
+  --vp-c-bg-alt: #15161a;    /* alt sections */
+  --vp-c-bg-elv: #1b1d21;    /* elevated surfaces */
+  --vp-c-bg-soft: #16181c;   /* soft blocks */
+  --vp-c-border: #26282d;
+  --vp-c-divider: #1e2024;
+  --vp-c-text-1: #e6e7ea;
+  --vp-c-text-2: #9ea3ad;
+  --vp-code-block-bg: #16181c;
+  /* Blue accent tuned slightly deeper in dark */
+  --vp-c-brand-1: #2f6feb;
+  --vp-c-brand-2: #255cc7;
+  --vp-c-brand-3: #1d4799;
+  --vp-c-brand-soft: #0f264a;
+}
+
+/* Site title (text logo) */
+.VPNavBar .title {
+  font-family: var(--vp-font-family-mono, ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace);
+  letter-spacing: 1px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 15px;
+}
+
+/* Sidebar active link accent */
+.VPSidebarItem.is-active > .item, .VPSidebarItem .link.active {
+  background: var(--vp-c-bg-elv);
+  border-left: 3px solid var(--vp-c-brand-1);
+  padding-left: calc(var(--vp-sidebar-padding, 16px) - 3px);
+}
+
+/* Remove heavy shadows / add subtle border */
+.VPNavBar { border-bottom: 1px solid var(--vp-c-border); box-shadow: none; backdrop-filter: blur(6px); background: rgba(15,16,18,0.85); }
+.VPSidebar, .VPDocAside { box-shadow: none; border-color: var(--vp-c-border); }
+
+/* Tip block -> blue band */
+.custom-block.tip {
+  --vp-custom-block-tip-border: var(--vp-c-brand-2);
+  --vp-custom-block-tip-text: var(--vp-c-text-1);
+  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
+  border-left: 4px solid var(--vp-custom-block-tip-border);
+  background: var(--vp-custom-block-tip-bg);
+}
+
+/* Code blocks */
+.vp-doc div[class*="language-"] {
+  background: var(--vp-code-block-bg);
+  border: 1px solid var(--vp-c-border);
+  border-radius: 8px;
+}
+
+/* Links subtle underline on hover */
+.vp-doc a { text-decoration: none; border-bottom: 1px solid transparent; transition: color .15s, border-color .15s; }
+.vp-doc a:hover { border-color: var(--vp-c-brand-1); }
+
+/* Outline active link accent */
+.VPDocAsideOutline .outline-link.active { color: var(--vp-c-brand-1); }
+
+/* Accessible focus ring */
+:focus-visible { outline: 2px solid var(--vp-c-brand-2); outline-offset: 2px; }
+
+/* Optional subtle scrollbar */
+*::-webkit-scrollbar { width: 10px; }
+*::-webkit-scrollbar-track { background: var(--vp-c-bg); }
+*::-webkit-scrollbar-thumb { background: #272a30; border-radius: 6px; border: 2px solid var(--vp-c-bg); }
+*::-webkit-scrollbar-thumb:hover { background: #31353b; }
